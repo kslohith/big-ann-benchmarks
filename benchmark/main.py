@@ -168,6 +168,8 @@ def main():
     )
 
     args = parser.parse_args()
+    
+    print("## START")
     if args.timeout == -1:
         args.timeout = None
 

@@ -1,15 +1,22 @@
 import os
 import numpy as np
 import time
+import sys
 
 from neurips23.filter.base import BaseFilterANN
 from benchmark.datasets import DATASETS
-
 import pgvector.psycopg
 import pgvector.asyncpg
 import psycopg
 from pprint import pprint
 from dotenv import load_dotenv
+
+# current_dir = os.path.dirname(os.path.abspath(__file__))
+# # Go up two levels to the parent of neurips23
+# parent_dir = os.path.dirname(os.path.dirname(current_dir))
+# print(parent_dir, current_dir)
+# # Add the parent directory to sys.path
+# sys.path.append(parent_dir)
 
 
 load_dotenv()
@@ -21,21 +28,39 @@ else:
     print("PINECONE_API_KEY loaded successfully. it is %s" % PINECONE_API_KEY)
 
 
-socket_dir = "/home/ubuntu/pg_sockets"
+socket_dir = "/var/run/postgresql"
 
 
 class PgvectorIndex(BaseFilterANN):
 
     def __init__(self,  metric, index_params):
+        self._metric = metric
+        # self._m = index_params['M']
+        # self._ef_construction = index_params['efConstruction']
+        self._cur = None
+        self._tag_column_name = 'tags'
         if metric == "angular":
-            self._query = "SELECT id FROM items ORDER BY embedding <=> %s LIMIT %s"
+            self._query = "SELECT id FROM items where ARRAY[%s] <@ %s ORDER BY embedding <=> %s LIMIT %s"
         elif metric == "euclidean":
-            self._query = "SELECT id FROM items ORDER BY embedding <-> %s LIMIT %s"
+            self._query = "SELECT id FROM items where ARRAY[%s] <@ %s ORDER BY embedding <-> %s LIMIT %s"
         else:
             raise RuntimeError(f"unknown metric {metric}")
 
     def notice_handler(self, notice):
         print("Received notice:", notice.message_primary)
+        
+    def _init_connection(self):
+        if self._cur == None:
+            conn = psycopg.connect(user="ann", password="ann", dbname="ann", autocommit=True, host=socket_dir)
+            pgvector.psycopg.register_vector(conn)
+            
+            # send client messages to stdout
+            conn.add_notice_handler(self.notice_handler)
+            
+            cur = conn.cursor()
+            cur.execute("SET client_min_messages = 'NOTICE'")
+            
+            self._cur = cur
     
     def fit(self, dataset):
         ds = DATASETS[dataset]()
@@ -46,45 +71,42 @@ class PgvectorIndex(BaseFilterANN):
         print(f"Building index")
         # TODO: create the index here using the train dataset
         
-        conn = psycopg.connect(user="ann", password="ann", dbname="ann", autocommit=True, host=socket_dir)
-        pgvector.psycopg.register_vector(conn)
+        self._init_connection()
         
-        # send client messages to stdout
-        conn.add_notice_handler(self.notice_handler)
         
-        cur = conn.cursor()
-        cur.execute("SET client_min_messages = 'NOTICE'")
-        cur.execute("SET pinecone.top_k = 100")
-        self._cur = cur
-        
-        skip_index_build = False
+        # set this flag to skip index building
+        skip_index_build = True
         
         if skip_index_build:
             return
         
-        X = ds.get_dataset()
-        filter_metadata = ds.get_dataset_metadata()
+        max_insertion_limit = 100000
+        X = ds.get_dataset()[0:max_insertion_limit]
+        filter_metadata = ds.get_dataset_metadata()[0:max_insertion_limit]
         non_zero_column_indices = np.nonzero(filter_metadata)
         
         cur.execute("DROP TABLE IF EXISTS items")
-        cur.execute("CREATE TABLE items (id int, embedding vector(%d), filter_1 int, filter_2 int)" % X.shape[1])
+        cur.execute(f'CREATE TABLE items (id int, embedding vector({X.shape[1]}), {self._tag_column_name} INTEGER[])')
         cur.execute("ALTER TABLE items ALTER COLUMN embedding SET STORAGE PLAIN")
         print("copying data...")
         start = time.time()
-        with cur.copy("COPY items (id, embedding) FROM STDIN") as copy:
+        with cur.copy(f'COPY items (id, embedding, {self._tag_column_name}) FROM STDIN') as copy:
             for i, embedding in enumerate(X):
                 # check if the embedding is all zeros and if so skip and warn
                 if np.all(embedding == 0):
                     print(f"embedding {i} is all zeros!!!")
                     continue
-                if not i % 1000:
-                    print(i)
-                    print(time.time() - start, "seconds")
-                if i > 20000:
-                    pass # no effect
-                filter_tags = non_zero_column_indices[1][non_zero_column_indices[1] == i]
-                copy.write_row((i, embedding, filter_tags[0], filter_tags[1]))
+                if not i % 10000:
+                    print(i, time.time() - start, "seconds")
+                filter_tags = non_zero_column_indices[1][non_zero_column_indices[0] == i]
+                formatted_tags = "{" + ",".join(map(str, filter_tags)) + "}"
+                copy.write_row((i, embedding, formatted_tags))
         print("done copying data")
+        
+        
+        print("...creating index")
+        cur.execute("CREATE INDEX ON items USING hnsw (embedding vector_l2_ops)")
+        print("...done creating index")    
         return
     
             
@@ -121,28 +143,55 @@ class PgvectorIndex(BaseFilterANN):
         raise NotImplementedError()
 
     def filtered_query(self, X, filter, k):
-
+        
         # if (X.dtype.kind == 'f'):
         #     print('data type of X is ' + str(X.dtype))
         #     X = X*10 + 128
         #     X = X.astype(np.uint8)
         #     padding_size = 192 - X.shape[1]
         #     X = np.pad(X, ((0, 0), (0, padding_size)), mode='constant')
-
-
-        # results_tuple = self.index.search_parallel(X, filter.indptr, filter.indices, k) # this returns a tuple: (results_array, query_time, post_processing_time)
-        # self.I = results_tuple[0]
-        # print("query and postprocessing times: ", results_tuple[1:])
+        self._init_connection()
+        
+        X = X[0:2]
+        filter = filter[0:2]
+        
+        def get_tags(tag_data):
+            non_zero_column_indices = np.nonzero(tag_data)
+            ret = []
+            n = tag_data.shape[0]
+            for idx in range(n):
+                tag_indices = non_zero_column_indices[1][non_zero_column_indices[0] == idx]
+                tag_str = ",".join(map(str, tag_indices))
+                ret.append(tag_str)
+            return ret
+        
+        start = time.time()
+        tag_data = get_tags(filter)
+        print(f"Filter construction took {time.time() - start} seconds")
+                
+        start = time.time()
+        self._cur.execute(self._query, (tag_data, self._tag_column_name, X, k), binary=True, prepare=True)
+        print(f"Query took {time.time() - start} seconds")
+        
+        return [id for id, in self._cur.fetchall()]
 
 
     def get_results(self):
         return self.I
 
-    def set_query_arguments(self, query_args):
-        self.qas = query_args
+    def set_query_arguments(self, ef_search=100):
+        self._init_connection()
+        self._ef_search = ef_search
+        # self._cur.execute("SET hnsw.ef_search = %d" % self._ef_search)
 
 
     def __str__(self):
         return f'pgvector_filter({self.indexkey, self._index_params, self.qas})'
 
    
+
+
+
+# pg_vec = PgvectorIndex("euclidean", None)
+# print("start")
+# pg_vec.fit("yfcc-10M")

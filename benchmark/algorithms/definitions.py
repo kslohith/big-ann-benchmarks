@@ -102,8 +102,10 @@ def get_unique_algorithms(definition_file):
 def get_all_definitions(path, dimension, dataset, distance_metric, count):
     definitions = []
     for l in glob.glob(os.path.join(path, "*/*.yaml"), recursive=True):
-        definitions.extend(get_definitions(l, dimension, 
-                dataset, distance_metric, count))
+        if 'pgvector' in l:
+            definitions.extend(get_definitions(l, dimension, 
+                    dataset, distance_metric, count))
+    print(f'returning {len(definitions)} defintions')
     return definitions
 
 def get_definitions(definition_file, dimension, dataset,
