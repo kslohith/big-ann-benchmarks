@@ -81,6 +81,7 @@ class PgvectorIndex(BaseFilterANN):
         skip_index_build = True
         
         if skip_index_build:
+            print('skipped index building')
             return
         
         max_insertion_limit = -1
@@ -179,9 +180,10 @@ class PgvectorIndex(BaseFilterANN):
         result_list = []
         start = time.time()
         for i in range(X.shape[0]):
-            # print(X[i], tag_data[i])
-            self._cur.execute(self._query, (tag_data[i], X[i], k), binary=True, prepare=True)
-            result_list.append([id for id, in self._cur.fetchall()])
+            self._cur.execute(self._query, (tag_data[i], str(X[i].tolist()), k), binary=True, prepare=True)
+            result = [id for id, in self._cur.fetchall()]
+            result_list.append(result)
+            print(f'num: {i} tag: {tag_data[i]} result = {result}')
         print(f"Query took {time.time() - start} seconds")
         
         # print(result_list)
