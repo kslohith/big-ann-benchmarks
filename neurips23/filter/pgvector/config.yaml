@@ -1,20 +1,3 @@
-random-filter-s:
-    pgvector:
-      docker-tag: neurips23-filter-pgvector
-      module: neurips23.filter.pgvector.pgvector_index
-      constructor: PgvectorIndex
-      base-args: ["@metric"]
-      run-groups:
-        base:
-          args: |
-            [{"indexkey": "FilterIVFFlatU8", "num_clusters": "128", "precompute_intersection_threshold": "5000"}]
-          query-args: |
-            [
-            {"fraction_coefficient": "0.3", "fraction_exponent": "0.1", "skip_clustering_threshold": 2000},
-            {"fraction_coefficient": "0.7", "fraction_exponent": "0.1", "skip_clustering_threshold": 2000},
-            {"fraction_coefficient": "1.0", "fraction_exponent": "0.1", "skip_clustering_threshold": 2000},
-            {"fraction_coefficient": "2.0", "fraction_exponent": "0.1", "skip_clustering_threshold": 2000}
-            ]
 yfcc-10M:
     pgvector:
       docker-tag: neurips23-filter-pgvector

@@ -81,6 +81,8 @@ def compute_metrics_all_runs(dataset, dataset_name, res, recompute=False,
     try:
         if neurips23track != 'streaming':
             true_nn = dataset.get_private_groundtruth() if private_query else dataset.get_groundtruth()
+            print(true_nn)
+            print(true_nn.shape)
         else:
             true_nn_across_steps = []
             gt_dir = benchmark.streaming.compute_gt.gt_dir(dataset, runbook_path)

@@ -10,6 +10,8 @@ class FilterRunner(BaseRunner):
             X = ds.get_queries()
         else:
             X = ds.get_private_queries()
+            
+        X=X[0:100]
         
         print(fr"Got {X.shape[0]} queries")
 
@@ -27,7 +29,8 @@ class FilterRunner(BaseRunner):
                     metadata = ds.get_queries_metadata()
                 else:
                     metadata = ds.get_private_queries_metadata()
-                algo.filtered_query(X, metadata, count)
+                # change for running on subset of the dataset
+                algo.filtered_query(X[0:100], metadata[0:100], count)
                 total = (time.time() - start)
                 results = algo.get_results()
                 assert results.shape[0] == X.shape[0]

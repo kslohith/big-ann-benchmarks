@@ -34,17 +34,19 @@ socket_dir = "/var/run/postgresql"
 class PgvectorIndex(BaseFilterANN):
 
     def __init__(self,  metric, index_params):
+        print("##", metric)
         self._metric = metric
         # self._m = index_params['M']
         # self._ef_construction = index_params['efConstruction']
         self._cur = None
-        self._tag_column_name = 'tags'
         if metric == "angular":
-            self._query = "SELECT id FROM items where ARRAY[%s] <@ %s ORDER BY embedding <=> %s LIMIT %s"
+            self._query = "SELECT id FROM items where ARRAY[%s]::integer[] <@ tags ORDER BY embedding <=> %s LIMIT %s"
         elif metric == "euclidean":
-            self._query = "SELECT id FROM items where ARRAY[%s] <@ %s ORDER BY embedding <-> %s LIMIT %s"
+            self._query = "SELECT id FROM items where ARRAY[%s]::integer[] <@ tags ORDER BY embedding <-> %s LIMIT %s"
         else:
             raise RuntimeError(f"unknown metric {metric}")
+        
+        self.fit("yfcc-10M")
 
     def notice_handler(self, notice):
         print("Received notice:", notice.message_primary)
@@ -63,6 +65,7 @@ class PgvectorIndex(BaseFilterANN):
             self._cur = cur
     
     def fit(self, dataset):
+        print("...Building the index")
         ds = DATASETS[dataset]()
 
         if ds.search_type() != "knn_filtered":
@@ -80,32 +83,36 @@ class PgvectorIndex(BaseFilterANN):
         if skip_index_build:
             return
         
-        max_insertion_limit = 100000
+        max_insertion_limit = -1
         X = ds.get_dataset()[0:max_insertion_limit]
         filter_metadata = ds.get_dataset_metadata()[0:max_insertion_limit]
         non_zero_column_indices = np.nonzero(filter_metadata)
         
-        cur.execute("DROP TABLE IF EXISTS items")
-        cur.execute(f'CREATE TABLE items (id int, embedding vector({X.shape[1]}), {self._tag_column_name} INTEGER[])')
-        cur.execute("ALTER TABLE items ALTER COLUMN embedding SET STORAGE PLAIN")
+        self._cur.execute("DROP TABLE IF EXISTS items")
+        self._cur.execute(f'CREATE TABLE items (id int, embedding vector({X.shape[1]}), tags INTEGER[])')
+        self._cur.execute("ALTER TABLE items ALTER COLUMN embedding SET STORAGE PLAIN")
         print("copying data...")
         start = time.time()
-        with cur.copy(f'COPY items (id, embedding, {self._tag_column_name}) FROM STDIN') as copy:
-            for i, embedding in enumerate(X):
+        with self._cur.copy(f'COPY items (id, embedding, tags) FROM STDIN') as copy:
+            for i in range(X.shape[0]):
+                embedding = X[i]
+                # print(i)
                 # check if the embedding is all zeros and if so skip and warn
                 if np.all(embedding == 0):
                     print(f"embedding {i} is all zeros!!!")
                     continue
                 if not i % 10000:
                     print(i, time.time() - start, "seconds")
-                filter_tags = non_zero_column_indices[1][non_zero_column_indices[0] == i]
+                # filter_tags = non_zero_column_indices[1][non_zero_column_indices[0] == i]
+                filter_tags = filter_metadata[i].nonzero()[1]
                 formatted_tags = "{" + ",".join(map(str, filter_tags)) + "}"
+                # print(formatted_tags)
                 copy.write_row((i, embedding, formatted_tags))
         print("done copying data")
         
         
         print("...creating index")
-        cur.execute("CREATE INDEX ON items USING hnsw (embedding vector_l2_ops)")
+        self._cur.execute("CREATE INDEX ON items USING hnsw (embedding vector_l2_ops)")
         print("...done creating index")    
         return
     
@@ -152,8 +159,8 @@ class PgvectorIndex(BaseFilterANN):
         #     X = np.pad(X, ((0, 0), (0, padding_size)), mode='constant')
         self._init_connection()
         
-        X = X[0:2]
-        filter = filter[0:2]
+        # X = X[0:2]
+        # filter = filter[0:2]
         
         def get_tags(tag_data):
             non_zero_column_indices = np.nonzero(tag_data)
@@ -161,19 +168,34 @@ class PgvectorIndex(BaseFilterANN):
             n = tag_data.shape[0]
             for idx in range(n):
                 tag_indices = non_zero_column_indices[1][non_zero_column_indices[0] == idx]
-                tag_str = ",".join(map(str, tag_indices))
-                ret.append(tag_str)
+                # print(type(tag_indices.tolist()))
+                ret.append(tag_indices.tolist())
             return ret
         
         start = time.time()
         tag_data = get_tags(filter)
         print(f"Filter construction took {time.time() - start} seconds")
-                
+                                
+        result_list = []
         start = time.time()
-        self._cur.execute(self._query, (tag_data, self._tag_column_name, X, k), binary=True, prepare=True)
+        for i in range(X.shape[0]):
+            # print(X[i], tag_data[i])
+            self._cur.execute(self._query, (tag_data[i], X[i], k), binary=True, prepare=True)
+            result_list.append([id for id, in self._cur.fetchall()])
         print(f"Query took {time.time() - start} seconds")
         
-        return [id for id, in self._cur.fetchall()]
+        # print(result_list)
+        
+        
+        max_length = max(len(sublist) for sublist in result_list)
+        # Pad shorter sublists with zeros to make them uniform in length
+        padded_list = [sublist + [0] * (max_length - len(sublist)) for sublist in result_list]
+        # Convert the padded list to a NumPy array
+        numpy_array = np.array(padded_list)
+
+
+        self.I = np.array(numpy_array)
+        # print(self.I)
 
 
     def get_results(self):
@@ -186,12 +208,13 @@ class PgvectorIndex(BaseFilterANN):
 
 
     def __str__(self):
-        return f'pgvector_filter({self.indexkey, self._index_params, self.qas})'
+        # return f'pgvector_filter({self.indexkey, self._index_params, self.qas})'
+        return f'pgvector_filter'
 
    
 
 
 
-# pg_vec = PgvectorIndex("euclidean", None)
-# print("start")
-# pg_vec.fit("yfcc-10M")
+pg_vec = PgvectorIndex("euclidean", None)
+print("start")
+pg_vec.fit("yfcc-10M")

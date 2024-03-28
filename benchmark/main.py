@@ -216,6 +216,7 @@ def main():
             fn = get_result_filename(args.dataset,
                                      args.count, definition,
                                      query_arguments)
+            print('file ', fn)
             if args.force or not os.path.exists(fn):
                 not_yet_run.append(query_arguments)
         if not_yet_run:
@@ -224,6 +225,8 @@ def main():
                     query_argument_groups=not_yet_run)
             filtered_definitions.append(definition)
     definitions = filtered_definitions
+    
+    print("##", filtered_definitions)
 
     random.shuffle(definitions)
 
@@ -252,6 +255,7 @@ def main():
             definitions = [
                 d for d in definitions if d.docker_tag in docker_tags]
 
+    print("##", definitions)
     if args.max_n_algorithms >= 0:
         definitions = definitions[:args.max_n_algorithms]
 
