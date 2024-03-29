@@ -46,8 +46,6 @@ class PgvectorIndex(BaseFilterANN):
         else:
             raise RuntimeError(f"unknown metric {metric}")
         
-        self.fit("yfcc-10M")
-
     def notice_handler(self, notice):
         print("Received notice:", notice.message_primary)
         
@@ -78,7 +76,7 @@ class PgvectorIndex(BaseFilterANN):
         
         
         # set this flag to skip index building
-        skip_index_build = True
+        skip_index_build = False
         
         if skip_index_build:
             print('skipped index building')
@@ -215,8 +213,6 @@ class PgvectorIndex(BaseFilterANN):
 
    
 
-
-
-pg_vec = PgvectorIndex("euclidean", None)
-print("start")
-pg_vec.fit("yfcc-10M")
+# pg_vec = PgvectorIndex("euclidean", None)
+# print("start")
+# pg_vec.fit("yfcc-10M")
