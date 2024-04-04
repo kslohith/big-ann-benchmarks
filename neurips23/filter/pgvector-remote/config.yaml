@@ -1,0 +1,12 @@
+yfcc-10M:
+    pgvector:
+      docker-tag: neurips23-filter-pgvector-remote
+      module: neurips23.filter.pgvector-remote.pgvector_remote_index
+      constructor: PgvectorRemoteIndex
+      base-args: ["@metric"]
+      run-groups:
+        base:
+          args: |
+            [{}]
+          query-args: |
+            [{}]

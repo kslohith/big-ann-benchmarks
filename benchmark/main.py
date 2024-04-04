@@ -169,7 +169,7 @@ def main():
 
     args = parser.parse_args()
     
-    print("## START")
+    # print("## START")
     if args.timeout == -1:
         args.timeout = None
 
@@ -226,7 +226,7 @@ def main():
             filtered_definitions.append(definition)
     definitions = filtered_definitions
     
-    print("##", filtered_definitions)
+    # print("##", filtered_definitions)
 
     random.shuffle(definitions)
 
@@ -255,7 +255,7 @@ def main():
             definitions = [
                 d for d in definitions if d.docker_tag in docker_tags]
 
-    print("##", definitions)
+    # print("##", definitions)
     if args.max_n_algorithms >= 0:
         definitions = definitions[:args.max_n_algorithms]
 
