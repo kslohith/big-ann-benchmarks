@@ -5,6 +5,7 @@ import sys
 import random
 import string
 
+from tqdm import tqdm
 from neurips23.filter.base import BaseFilterANN
 from benchmark.datasets import DATASETS
 import pgvector.psycopg
@@ -63,7 +64,9 @@ class PgvectorRemoteIndex(BaseFilterANN):
             conn.add_notice_handler(self.notice_handler)
             
             cur = conn.cursor()
-            cur.execute("SET client_min_messages = 'DEBUG1'")
+            # cur.execute("SET client_min_messages = 'DEBUG1'")
+            cur.execute("SET pinecone.vectors_per_request = 100")
+            cur.execute("SET pinecone.requests_per_batch = 40")
             
             self._cur = cur
     
@@ -82,19 +85,21 @@ class PgvectorRemoteIndex(BaseFilterANN):
             print('skipped index building')
             return
         
-        max_insertion_limit = 10
+        max_insertion_limit = -1
         X = ds.get_dataset()[0:max_insertion_limit]
         filter_metadata = ds.get_dataset_metadata()[0:max_insertion_limit]
         non_zero_column_indices = np.nonzero(filter_metadata)
         
+        print("drop table before")
         self._cur.execute("DROP TABLE IF EXISTS ann_vectors")
+        print("drop table after")
         self._cur.execute(f'CREATE TABLE ann_vectors (id int, embedding vector({X.shape[1]}), tags TEXT[])')
         self._cur.execute("ALTER TABLE ann_vectors ALTER COLUMN embedding SET STORAGE PLAIN")
         
         print("copying data...")
         start = time.time()
         with self._cur.copy(f'COPY ann_vectors (id, embedding, tags) FROM STDIN') as copy:
-            for i in range(X.shape[0]):
+            for i in tqdm(range(X.shape[0])):
                 embedding = X[i]
                 # print(i)
                 # check if the embedding is all zeros and if so skip and warn
@@ -111,10 +116,11 @@ class PgvectorRemoteIndex(BaseFilterANN):
         print("done copying data")
         
         index_name =  'benchmark' + ''.join(random.choices(string.ascii_lowercase, k=4))
-        print(f"...creating remote index {index_name}")
+        print(f"...creating remote index: {index_name}")
         
         self._cur.execute("ALTER SYSTEM SET pinecone.api_key = '%s'" % PINECONE_API_KEY)
         self._cur.execute("SHOW pinecone.api_key")
+        print(f'pinecone.api_key val in db: {self._cur.fetchone()}')
         # self._cur.execute(f'CREATE INDEX {index_name} ON ann_vectors USING pinecone (embedding, tags) with (spec = \'{"serverless":{"cloud":"aws","region":"us-west-2"}}\')')
         self._cur.execute(f'CREATE INDEX {index_name} ON ann_vectors USING pinecone (embedding, tags) with (spec = \'{{"serverless":{{"cloud":"aws","region":"us-west-2"}}}}\')')
 
@@ -154,7 +160,7 @@ class PgvectorRemoteIndex(BaseFilterANN):
         raise NotImplementedError()
 
     def filtered_query(self, X, filter, k):
-        
+        print(f'Starting benchmark fetch queries. X.shape: {X.shape}, filter.shape: {filter.shape}')
         self._init_connection()
         self._cur.execute(f"SET pinecone.top_k = {k}")
         
@@ -184,10 +190,10 @@ class PgvectorRemoteIndex(BaseFilterANN):
             print(f'num: {i} tag: {tag_data[i]} result = {result}')
         print(f"Query took {time.time() - start} seconds")
         
-        print(result_list)
+        # print(result_list)
         
         
-        max_length = max(len(sublist) for sublist in result_list)
+        max_length = k
         # Pad shorter sublists with zeros to make them uniform in length
         padded_list = [sublist + [0] * (max_length - len(sublist)) for sublist in result_list]
         # Convert the padded list to a NumPy array
