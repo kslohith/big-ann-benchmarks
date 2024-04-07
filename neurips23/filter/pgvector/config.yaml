@@ -9,4 +9,4 @@ yfcc-10M:
           args: |
             [{}]
           query-args: |
-            [{}]
+            [{"ef_search": "1000"}]

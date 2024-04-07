@@ -29,6 +29,8 @@ class PgvectorIndex(BaseFilterANN):
             raise RuntimeError(f"unknown metric {metric}")
         
         print("Instantiated pgvector-remote")
+        # hack to make this code call the fit method. Need to figure out why runner is not calling fit on its own.
+        # self.fit("yfcc-10M")
         
     def notice_handler(self, notice):
         print("Received notice:", notice.message_primary)
@@ -95,7 +97,7 @@ class PgvectorIndex(BaseFilterANN):
         
         
         print("...creating index")
-        self._cur.execute("CREATE INDEX ON items USING hnsw (embedding vector_l2_ops)")
+        self._cur.execute("CREATE INDEX ON items USING hnsw (embedding vector_l2_ops) WITH (m = 32, ef_construction = 128);")
         print("...done creating index")    
         return
     
@@ -185,10 +187,11 @@ class PgvectorIndex(BaseFilterANN):
     def get_results(self):
         return self.I
 
-    def set_query_arguments(self, ef_search=100):
+    def set_query_arguments(self, query_args):
         self._init_connection()
-        self._ef_search = ef_search
-        # self._cur.execute("SET hnsw.ef_search = %d" % self._ef_search)
+        if "ef_search" in query_args:
+            query = f"SET hnsw.ef_search = {query_args['ef_search']}"
+            self._cur.execute(query)
 
 
     def __str__(self):

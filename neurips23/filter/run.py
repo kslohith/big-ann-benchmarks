@@ -11,6 +11,7 @@ class FilterRunner(BaseRunner):
         else:
             X = ds.get_private_queries()
                     
+        X=X[0:10000]
         print(fr"Got {X.shape[0]} queries for the filter benchmark")
 
         for i in range(run_count):
@@ -28,7 +29,7 @@ class FilterRunner(BaseRunner):
                 else:
                     metadata = ds.get_private_queries_metadata()
                 # change for running on subset of the dataset
-                algo.filtered_query(X[0:100], metadata[0:100], count)
+                algo.filtered_query(X, metadata, count)
                 total = (time.time() - start)
                 results = algo.get_results()
                 assert results.shape[0] == X.shape[0]
