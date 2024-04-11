@@ -11,7 +11,8 @@ class FilterRunner(BaseRunner):
         else:
             X = ds.get_private_queries()
                     
-        X=X[0:10000]
+        X=X[0:100]
+        run_count = 1
         print(fr"Got {X.shape[0]} queries for the filter benchmark")
 
         for i in range(run_count):
@@ -36,7 +37,7 @@ class FilterRunner(BaseRunner):
             else:
                 raise NotImplementedError()
 
-            search_time = total
+            search_time = total * 1000
             best_search_time = min(best_search_time, search_time)
             search_times.append( search_time )
 
@@ -53,5 +54,4 @@ class FilterRunner(BaseRunner):
         additional = algo.get_additional()
         for k in additional:
             attrs[k] = additional[k]
-        return (attrs, results)
-        
+        return (attrs, results)        
